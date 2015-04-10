@@ -1,4 +1,4 @@
-Run an Arduino app that can be updated through the uTasker bootloader
+Create an Arduino app that can be updated through the uTasker bootloader
 
 ## Bootloader details
 The bootloader can be used to update firmware by replacing a file on the SD card, or by directly updating the Teensy's flash by exposing the application area of flash as a drive over USB-MSD.
@@ -41,26 +41,30 @@ Todo: add some visual feedback to see the current state of firmware
 ### Creating Application .bin for bootloader
 * Load Aurora sketch and compile with Linker script "0x8080 Offset".
 * Navigate to the directory holding the .hex file that was generated (you can find this directory in the Arduino build console).
-* Copy uTaskerUsbMsd-SmartMatrix.hex to this folder
+* Copy `uTaskerUsbMsd-SmartMatrix.hex` to this folder
 * Run this srec_cat command to combine the two hex files, and create a .bin with CRC compatible with the bootloader:  
   `srec_cat '(' '(' Aurora.cpp.hex -Intel uTaskerUsbMsd-SmartMatrix.hex -Intel ')' -crop 0x8080 0x40000 -offset -0x8080 ')' -fill 0xFF 0x0000 0x37F7E -crc16-b-e 0x37f7E -xmodem -Output software.bin -Binary`
 
 ### Creating .hex file containing Bootloader, Application, USB-MSD
 * Follow above instructions for "Creating Application .bin for bootloader"
-* Copy uTaskerBootloader-SmartMatrix.hex to the build directory
+* Copy `uTaskerBootloader-SmartMatrix.hex` to the build directory
 * Run this srec_cat command to combine all three hex files:  
 `srec_cat '(' '(' '(' Aurora.cpp.hex -Intel uTaskerUsbMsd-SmartMatrix.hex -Intel ')' -crop 0x8080 0x40000 -offset -0x8080 ')' -fill 0xFF 0x0000 0x37F7E -crc16-b-e 0x37f7E -xmodem -offset 0x8080 ')' uTaskerBootloader-SmartMatrix.hex -Intel -Output AuroraWithBootAndUsbMsd.hex -Intel`
 * Note this file can't be opened in Teensy Loader (it appears to have a bug where it won't accept a file that fills the flash)
 
 ### Loading bootloader and application to Teensy
 * Create software.bin
-* Use Teensy Loader to upload uTaskerBootloader-SmartMatrix.hex to Teensy
+* Use Teensy Loader to upload `uTaskerBootloader-SmartMatrix.hex` to Teensy
 * Wait for red light to blink on SmartMatrix indicating no application is loaded.
 * Find UPLOAD_DISK drive
 * Copy software.bin to UPLOAD_DISK drive, it will eject automatically
 * Ignore any warnings on "Disk Not Ejected Properly", the disk self-ejected after the file copied over
 * Aurora should now run
 
+### uTasker Compilation/License
+uTaskerBootloader-SmartMatrix.hex is the uTaskerSerialLoader application included with V1.4.7 with some significant modifications to the .bin file format and logic to combine the USB-MSD and SD loaders.
 
+The binary was compiled with Kinetis Design Studio.
+A uTasker license was purchased for this project.  In keeping with the terms of the uTasker license, this binary can only be used for a non-commercial project.  If you want to use this project for a commercial project, uTasker has [reasonable license fees](http://www.utasker.com/Licensing/License.html) and excellent support.  You should compile the project yourself to customize the USB IDs and device information.
 
-
+I do plan on open sourcing the changes I made to the uTaskerSerialLoader application, most likely as a diff that can be used with the uTasker V1.4.7 release published on uTasker's site.
