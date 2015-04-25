@@ -50,7 +50,7 @@ Todo: add some visual feedback to see the current state of firmware
 * Install Teensyduino (minimum 1.21) onto Arduino (minimum 1.6.1)
 * Install srec_cat tool: http://srecord.sourceforge.net/
 * Modify boards.txt in the Arduino application to give new Post Compile Script option
-    * hardware/teensy/avr/boards.txt
+    * `hardware/teensy/avr/boards.txt`
     * Add these lines:  
 ```menu.postcompilescript=Post Compile Script
 teensy31.menu.postcompilescript.default=Default
@@ -59,7 +59,7 @@ teensy31.menu.postcompilescript.crc=USB-MSD and CRC
 teensy31.menu.postcompilescript.crc.build.script="(" "(" "{build.path}/{build.project_name}.hex" "-Intel" "{runtime.ide.path}/hardware/tools/uTaskerUsbMsd-SmartMatrix.hex" "-Intel" ")" "-crop" "0x8080" "0x40000" "-offset" "-0x8080" ")" "-fill" "0xFF" "0x0000" "0x37F7E" "-crc16-b-e" "0x37f7E" "-xmodem" "-Output" "{build.path}/software.bin" "-Binary"```
 	* Note: you can change the location of software.bin from `{build.path}` to another location that's easier to find, e.g. `"/Users/username/temp/software.bin"`
 * Modify platform.txt in the  Arduino application to run srec_cat after generating a new .hex file
-	* hardware/teensy/avr/platform.txt
+	* `hardware/teensy/avr/platform.txt`
 	* Find "Create hex" heading
 	* Modify the line starting with `recipe.objcopy.hex.pattern`, change to read `recipe.objcopy.hex.1.pattern`
 	* Add this line below:  
