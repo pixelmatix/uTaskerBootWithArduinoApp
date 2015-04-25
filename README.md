@@ -65,7 +65,7 @@ teensy31.menu.postcompilescript.crc.build.script="(" "(" "{build.path}/{build.pr
     * Find "Create hex" heading
     * Modify the line starting with `recipe.objcopy.hex.pattern`, change to read `recipe.objcopy.hex.1.pattern`
     * Add this line below:  
-    recipe.objcopy.hex.2.pattern="{runtime.ide.path}/hardware/tools/srec_cat" {build.binscript}
+`recipe.objcopy.hex.2.pattern="{runtime.ide.path}/hardware/tools/srec_cat" {build.binscript}`
    * Copy `srec_cat` executable and uTaskerUsbMsd-SmartMatrix.hex to /Contents/Java/tools in your  Arduino application
    * Note: these instructions are only tested on the Mac, you may need to rename the `srec_cat` command in platform.txt to `srec_cat.exe` on Windows.
    * Restart Arduino and there should be a new menu entry in the Tools menu: "BIN Script"
