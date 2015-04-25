@@ -12,7 +12,8 @@ The bootloader expects firmware in a specific format.  The file is a raw binary,
 TODO: support wildcard filenames e.g. software*.bin?
 
 This srec_cat command can convert a .hex file compiled with Arduino using the ["0x8080 Offset" linker script](https://github.com/pixelmatix/JumpToAppWithOffset) into a .bin file compatible with the bootloader:  
-`srec_cat '(' Blink.cpp.hex -Intel -crop 0x8080 0x40000 -offset -0x8080 ')' -fill 0xFF 0x0000 0x37F7E -crc16-b-e 0x37f7E -xmodem -Output software.bin -Binary`
+`srec_cat '(' Blink.cpp.hex -Intel -crop 0x8080 0x40000 -offset -0x8080 ')' -fill 0xFF 0x0000 0x37F7E -crc16-b-e 0x37f7E -xmodem -Output software.bin -Binary`  
+Note: parentheses need to be surrounded by single quotes on the Mac and probably on Linux, but not on Windows
 
 It takes a few seconds for the bootloader to check the SD card at reset before either starting a valid application or starting USB-MSD if there is no valid application.  If there is new valid firmware on the SD card, it can take over 10 seconds to update the firmware.  
 Todo: add some visual feedback to see the current state of firmware
@@ -44,6 +45,30 @@ Todo: add some visual feedback to see the current state of firmware
 * Copy `uTaskerUsbMsd-SmartMatrix.hex` to this folder
 * Run this srec_cat command to combine the two hex files, and create a .bin with CRC compatible with the bootloader:  
   `srec_cat '(' '(' Aurora.cpp.hex -Intel uTaskerUsbMsd-SmartMatrix.hex -Intel ')' -crop 0x8080 0x40000 -offset -0x8080 ')' -fill 0xFF 0x0000 0x37F7E -crc16-b-e 0x37f7E -xmodem -Output software.bin -Binary`
+
+#### Automating Application .bin Creation with Arduino
+* Install Teensyduino (minimum 1.21) onto Arduino (minimum 1.6.1)
+* Install srec_cat tool: http://srecord.sourceforge.net/
+* Modify boards.txt in the Arduino application to give new Post Compile Script option
+    * hardware/teensy/avr/boards.txt
+    * Add these lines:  
+	menu.postcompilescript=Post Compile Script
+	teensy31.menu.postcompilescript.default=Default
+	teensy31.menu.postcompilescript.default.build.script="{build.path}/{build.project_name}.hex" "-Intel" "-Output" "temp.bin"
+	teensy31.menu.postcompilescript.crc=USB-MSD and CRC
+	teensy31.menu.postcompilescript.crc.build.script="(" "(" "{build.path}/{build.project_name}.hex" "-Intel" "{runtime.ide.path}/hardware/tools/uTaskerUsbMsd-SmartMatrix.hex" "-Intel" ")" "-crop" "0x8080" "0x40000" "-offset" "-0x8080" ")" "-fill" "0xFF" "0x0000" "0x37F7E" "-crc16-b-e" "0x37f7E" "-xmodem" "-Output" "{build.path}/software.bin" "-Binary"
+* Note: you can change the location of software.bin from `{build.path}` to another location that's easier to find, e.g. `"/Users/username/temp/software.bin"`
+* Modify platform.txt in the  Arduino application to run srec_cat after generating a new .hex file
+    * hardware/teensy/avr/platform.txt
+    * Find "Create hex" heading
+    * Modify the line starting with `recipe.objcopy.hex.pattern`, change to read `recipe.objcopy.hex.1.pattern`
+    * Add this line below:  
+    recipe.objcopy.hex.2.pattern="{runtime.ide.path}/hardware/tools/srec_cat" {build.binscript}
+   * Copy `srec_cat` executable and uTaskerUsbMsd-SmartMatrix.hex to /Contents/Java/tools in your  Arduino application
+   * Note: these instructions are only tested on the Mac, you may need to rename the `srec_cat` command in platform.txt to `srec_cat.exe` on Windows.
+   * Restart Arduino and there should be a new menu entry in the Tools menu: "BIN Script"
+   * "Default" does nothing useful, it calls srec_cat and saves a temp.bin file.
+   * "USB-MSD and CRC" creates software.bin that can be used with the bootloader
 
 ### Creating .hex file containing Bootloader, Application, USB-MSD
 * Follow above instructions for "Creating Application .bin for bootloader"
