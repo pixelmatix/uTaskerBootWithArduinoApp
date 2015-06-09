@@ -6,17 +6,16 @@ The bootloader can be used to update firmware by replacing a file on the SD card
 By default, the loader first checks for a valid firmware file on the SD card.  If there is a valid file, it compares the file to the contents of the application area of flash, and overwrites the application area of flash with the file if the contents are different.  The file on the SD card is deleted after it is updated.  
 TODO: what if the file is invalid or identical?
 
-The USB-MSD method of updating firmware is intended to be used as a backup.  The bootloader appears as a USB-MSD drive only if there is no valid application found on the SD card or in application flash.  The USB-MSD method can be forced to start - skipping the SD card check - by grounding Teensy pin 32 or 16 when the board powers up.  When connected to a SmartMatrix panel, a single red LED on the panel blinks when in USB-MSD mode to indicate new firmware needs to be loaded.
+The USB-MSD method of updating firmware is intended to be used as a backup.  The bootloader appears as a USB-MSD drive only if there is no valid application found on the SD card or in application flash.  The USB-MSD method can be forced to start - skipping the SD card check - by grounding Teensy pin 32 (B18) or 16 (B0) when the board powers up.  When connected to a SmartMatrix panel, a single red LED on the panel blinks when in USB-MSD mode to indicate new firmware needs to be loaded.
 
 The bootloader expects firmware in a specific format.  The file is a raw binary, sized exactly matching the application area in flash (from address 0x8080 - 0x3FFFF = 0x37F80 bytes).  The last two bytes of flash contain a CRC.  Any unused locations in flash should be filled with 0xFF.  The file must be named "software.bin".  
-TODO: support wildcard filenames e.g. software*.bin?
 
 This srec_cat command can convert a .hex file compiled with Arduino using the ["0x8080 Offset" linker script](https://github.com/pixelmatix/JumpToAppWithOffset) into a .bin file compatible with the bootloader:  
 `srec_cat '(' Blink.cpp.hex -Intel -crop 0x8080 0x40000 -offset -0x8080 ')' -fill 0xFF 0x0000 0x37F7E -crc16-b-e 0x37f7E -xmodem -Output software.bin -Binary`  
 Note: parentheses need to be surrounded by single quotes on the Mac and probably on Linux, but not on Windows
 
-It takes a few seconds for the bootloader to check the SD card at reset before either starting a valid application or starting USB-MSD if there is no valid application.  If there is new valid firmware on the SD card, it can take over 10 seconds to update the firmware.  
-Todo: add some visual feedback to see the current state of firmware
+It takes a few seconds for the bootloader to check the SD card at reset before either starting a valid application or starting USB-MSD if there is no valid application.  If there is new valid firmware on the SD card, it can take over 10 seconds to update the firmware.
+
 
 ## USB-MSD Known Issues:
 * OSX Path Finder (3rd party app) can't delete software.bin
@@ -92,4 +91,28 @@ uTaskerBootloader-SmartMatrix.hex is the uTaskerSerialLoader application include
 The binary was compiled with Kinetis Design Studio.
 A uTasker license was purchased for this project.  In keeping with the terms of the uTasker license, this binary can only be used for a non-commercial project.  If you want to use this project for a commercial project, uTasker has [reasonable license fees](http://www.utasker.com/Licensing/License.html) and excellent support.  You should compile the project yourself to customize the USB IDs and device information.
 
-I do plan on open sourcing the changes I made to the uTaskerSerialLoader application, most likely as a diff that can be used with the uTasker V1.4.7 release published on uTasker's site.
+The changes made to the uTaskerSerialLoader application are published as a patch file that can be applied to a development release from uTasker.  Here are the steps to compile:
+
+1. Download release "30.3.2015" from the [uTasker Kinetis Developers page](http://www.utasker.com/kinetis/developers.html).  The zip is password protected, contact uTasker for a password to open the zip.
+2. Extract uTasker project to a folder
+3. Copy all files from uTasker project subdirectory Applications/uTaskerV1.4/KinetisDesignStudio/Project_Settings into the root folder of the uTasker project, overwriting the files there.
+5. Install [Kinetis Design Studio](http://www.freescale.com/webapp/sps/site/prod_summary.jsp?code=KDS_IDE) and open - We've only tested 2.0, though 3.0 should work
+6. Right Click in the Project Explorer window, choose "Import"
+7. Choose General-Existing Projects into Workspace
+8. Find your uTasker project directory
+9. You should see "uTaskerV1_4" project in list.  Make sure it is checked.
+Click Finish
+10. Right click on the uTasker project in Project Explorer, choose properties
+11. Click on the "Manage Configurations" button at the top right
+12. Find the configuration named uTaskerSerialLoader_FLASH, click Set Active, then OK
+13. Choose "uTaskerSerialLoader_FLASH" from the Configuration dropdown menu.
+14. Navigate to C/C++ Build, Settings
+15. On the Tool Settings Tab, navigate to Cross ARM C++ Linker-General
+16. Edit the entry that reads "${uTaskerLinkerScripts}/K_1M_256.ld", replace with "${uTaskerLinkerScripts}/K_256_64.ld" (matching the 256k Flash, 64k RAM in the Teensy 3.1)
+17. Click OK to exit properties
+18. Paste uTaskerSerialBoot.patch into Applications/uTaskerSerialBoot folder
+apply the patch file from the commandline: `patch -i uTaskerSerialBoot.patch`
+19. Back in KDS, Right click on the uTasker project, Build Project
+20. Will create hex file: uTaskerSerialLoader_FLASH/uTaskerSerialLoader.hex
+
+

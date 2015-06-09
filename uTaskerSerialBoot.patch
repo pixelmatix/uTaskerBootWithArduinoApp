@@ -1,0 +1,820 @@
+diff -ubr original/Loader.c new/Loader.c
+--- original/Loader.c	2015-02-15 21:54:26.000000000 -0500
++++ new/Loader.c	2015-06-09 14:15:07.000000000 -0400
+@@ -269,6 +269,26 @@
+         fnSimulateLinkUp();                                              // Ethernet link up simulation
+     #endif
+ #endif
++
++        // custom code for SmartMatrix Bootloader
++        INIT_MATRIX_OE_INPUT_PU();                                      // pull up OE pin to avoid garbage data on display with SmartMatrix Shield V1
++
++        // Start one of the loader tasks:
++        // first do check on FORCE_BOOT, if pressed, start USB task
++        if(FORCE_BOOTLOADER_MODE()) {
++            fnDebugMsg("\r\nStarting USB-MSD Task\r\n\n");
++            uTaskerStateChange(TASK_USB, UTASKER_ACTIVATE);
++
++            // blinking led in center indicates USB_MSD mode
++            setupBlinkingLED(16);
++
++        // else, start SD task
++        } else {
++            fnDebugMsg("\r\nStarting SD Task\r\n\n");
++            uTaskerStateChange(TASK_SD_LOADER, UTASKER_ACTIVATE);
++            uTaskerStateChange(TASK_MASS_STORAGE, UTASKER_ACTIVATE);
++        }
++
+         iAppState = STATE_ACTIVE;
+     }
+   //else if ((STATE_RESETTING | STATE_PAUSING) & iAppState) {            // {16} allow reset and application commands to be commanded from web server interface
+@@ -435,6 +455,12 @@
+                             iAppState = STATE_QUESTION_MASS_DELETE;
+                             break;
+                         }
++
++                        if ((ucInputMessage[1] == 's') || (ucInputMessage[1] == 'S')) {
++                            fnDebugMsg("\r\nStarting USB-MSD Task\r\n\n");
++                            uTaskerStateChange(TASK_USB, UTASKER_ACTIVATE);
++                            break;
++                        }
+                     }
+         #endif
+                     else if ((ucInputMessage[0] == 'b') || (ucInputMessage[0] == 'B')) {
+@@ -454,6 +480,16 @@
+                             break;
+                         }
+                     }
++
++                    else if ((ucInputMessage[0] == 's') || (ucInputMessage[0] == 'S')) {
++                        if ((ucInputMessage[1] == 'd') || (ucInputMessage[1] == 'D')) {
++                            fnDebugMsg("\r\nStarting SD Task\r\n\n");
++                            uTaskerStateChange(TASK_MASS_STORAGE, UTASKER_ACTIVATE);
++                            uTaskerStateChange(TASK_SD_LOADER, UTASKER_ACTIVATE);
++                            break;
++                        }
++                    }
++
+                 }
+                 fnDebugMsg(" ??\r\n> ");
+             }
+@@ -611,7 +647,9 @@
+     #if !defined REMOVE_SREC_LOADING                                     // {17}
+     fnDebugMsg("ld = start load\r\n");
+     #endif
+-    fnDebugMsg("go = start application\r\n> ");
++    fnDebugMsg("go = start application\r\n");
++    fnDebugMsg("ms = start usb-MSd task\r\n");
++    fnDebugMsg("sd = start sd task\r\n> ");
+ }
+ 
+ #if !defined REMOVE_SREC_LOADING && !defined KBOOT_LOADER                // {17}
+@@ -1227,7 +1265,11 @@
+     iForcedToBootMode = 1;
+     #endif
+ #endif
+-    if ((FORCE_BOOT() == 0)) {
++#if !defined ALWAYS_START_LOADER_TASK
++    if ((FORCE_BOOTLOADER_MODE() == 0)) {
++#else
++    if (0) {
++#endif
+ #if !defined _WINDOWS                                                    // check for forced boot mode or no application code
+         _DELETE_BOOT_MAILBOX();                                          // {13}
+         if ((*(unsigned long *)_UTASKER_APP_START_ != 0xffffffff) && (*(unsigned long *)(_UTASKER_APP_START_ + 4) != 0xffffffff)) {
+diff -ubr original/Loader.h new/Loader.h
+--- original/Loader.h	2015-03-27 08:58:52.000000000 -0400
++++ new/Loader.h	2015-06-09 14:15:07.000000000 -0400
+@@ -54,7 +54,7 @@
+     #undef _REMOVE_FORMATTED_OUTPUT
+ #endif
+ //#define ENCRYPTED_CARD_CONTENT                                         // {22}
+-
++#define SD_NO_HEADER
+ 
+ #if !defined FRDM_KE04Z
+     #define SHOW_APP_DETAILS                                             // {2} display application start and size in menu
+@@ -116,7 +116,7 @@
+         #endif
+         #define UTASKER_APP_START     (32 * 1024)                        // application starts at this address
+         #define INTERMEDIATE_PROG_BUFFER  (8 * 1024)                     // when UART speed greater than 57600 Baud is used an intermediate buffer is recommended
+-        #define UTASKER_APP_END       (unsigned char *)(UTASKER_APP_START + (32 * 1024)) // end of application space - after maximum application size
++        #define UTASKER_APP_END       (unsigned char *)(SIZE_OF_FLASH) // end of application space - after maximum application size
+     #elif defined FRDM_KL02Z || defined FRDM_KL03Z || defined FRDM_KL05Z || defined FRDM_KE02Z || defined FRDM_KE02Z40M || defined TWR_KV10Z32 || defined TWR_KV31F120M // {18}
+         #define UTASKER_APP_START     (10 * 1024)                        // application starts at this address
+         #if defined TWR_KV31F120M
+@@ -129,13 +129,13 @@
+         #define INTERMEDIATE_PROG_BUFFER  (8 * 1024)                     // when UART speed greater than 57600 Baud is used an intermediate buffer is recommended
+         #define UTASKER_APP_END       (unsigned char *)(UTASKER_APP_START + (70 * 1024)) // end of application space - after maximum application size
+     #endif
+-    #define MASS_ERASE                                                   // support a mass-erase command. This is used together with a protected FLASH configuration.
++    //#define MASS_ERASE                                                   // support a mass-erase command. This is used together with a protected FLASH configuration.
+                                                                          // when the FLASH is protected, downloads are still possible but the debug interface is blocked.
+                                                                          // this allows a commanded delete of the complete FLASH content (including serial loader) to unblock the
+                                                                          // debug interface
+     // Before software can be read from the disk a password file must have been copied {7}
+     //
+-    #define READ_PASSWORD             "enable file read from the Kinetis device by dragging this file to the disk" // password with maximum length of 512 bytes
++    //#define READ_PASSWORD             "enable file read from the Kinetis device by dragging this file to the disk" // password with maximum length of 512 bytes
+ 
+     // SD card loading - file to be loaded, magic number and secret key for authenticating the file's content {8}
+     //
+@@ -149,7 +149,7 @@
+     #else
+         #define NEW_SOFTWARE_FILE     "software.bin"
+         #define VALID_VERSION_MAGIC_NUMBER   0x1234
+-        #define _SECRET_KEY           {0xa7, 0x48, 0xb6, 0x53, 0x11, 0x24}
++        #define _SECRET_KEY           {}
+     #endif
+ #elif defined _LPC23XX
+     #define SERIAL_SPEED              SERIAL_BAUD_115200                 // the Baud rate of the UART
+@@ -249,7 +249,7 @@
+ #if defined USB_INTERFACE
+     #define _UTASKER_APP_START_ (UTASKER_APP_START + (ROOT_FILE_ENTRIES * 32)) // when USB is used the start of application space is used for FAT entries
+ #else
+-    #define _UTASKER_APP_START_ (UTASKER_APP_START)
++    #define _UTASKER_APP_START_ (UTASKER_APP_START) + (ROOT_FILE_ENTRIES * 32)
+ #endif
+ 
+ #if !defined UPLOAD_OFFSET
+@@ -261,6 +261,7 @@
+ 
+ #define MAX_UTASKER_APP_SIZE      (MAX_FILE_LENGTH)(UTASKER_APP_END - (unsigned char *)_UTASKER_APP_START_)
+ 
++#define ALWAYS_START_LOADER_TASK		// Get through fnUserHwInit without jumping to application or erasing flash
+ 
+ #if defined USE_TFTP
+     #define TFTP_ERROR_MESSAGE     "uTasker TFTP Error"                  // fixed TFTP error test
+diff -ubr original/SDLoader.c new/SDLoader.c
+--- original/SDLoader.c	2015-02-16 20:06:26.000000000 -0500
++++ new/SDLoader.c	2015-06-09 14:15:07.000000000 -0400
+@@ -60,16 +60,19 @@
+ #define CRC_BLOCK_SIZE             1024                                  // CRC check in internal flash made in blocks of this size
+ #define COPY_BUFFER_SIZE           256                                   // file processed in blocks of this size from SD card
+ 
++#ifndef SD_NO_HEADER
+ #if defined ENCRYPTED_CARD_CONTENT                                       // ensure length is compiler independent
+     #define SIZE_OF_UPLOAD_HEADER (sizeof(unsigned long) + (3 * sizeof(unsigned short)))
+ #else
+     #define SIZE_OF_UPLOAD_HEADER (sizeof(unsigned long) + (2 * sizeof(unsigned short)))
+ #endif
++#endif
+ 
+ /* =================================================================== */
+ /*                      local structure definitions                    */
+ /* =================================================================== */
+ 
++#ifndef SD_NO_HEADER
+ typedef struct _PACK stUPLOAD_HEADER
+ {
+     unsigned long  ulCodeLength;
+@@ -79,6 +82,7 @@
+     unsigned short usRAWCRC;
+ #endif
+ } UPLOAD_HEADER;
++#endif
+ 
+ /* =================================================================== */
+ /*                 local function prototype declarations               */
+@@ -87,11 +91,20 @@
+ #if defined ENCRYPTED_CARD_CONTENT                                       // {9}
+     static unsigned short fnDecrypt(unsigned char *ptrData, unsigned short usBlockSize);
+ #endif
++
++#if defined SD_NO_HEADER
++static int fnUpdateSoftware(int iAppState, UTFILE *ptr_utFile);
++#else
+ static int fnUpdateSoftware(int iAppState, UTFILE *ptr_utFile, UPLOAD_HEADER *ptrFile_header);
++#endif
++
+ static unsigned short fnCRC16(unsigned short usCRC, unsigned char *ptrInput, unsigned long ulBlockSize);
++
++#ifndef SD_NO_HEADER
+ #if defined (_WINDOWS) || defined (_LITTLE_ENDIAN)
+     static void fnHeaderToLittleEndian(UPLOAD_HEADER *file_header);
+ #endif
++#endif
+ #if defined WILDCARD_FILES                                               // {8}
+     static int fnWildcardMatch(CHAR *cString, CHAR *cPattern);
+ #endif
+@@ -138,7 +151,9 @@
+     #endif
+     static int iAppState = STATE_INIT;                                   // task state
+     static unsigned char ucInputMessage[HEADER_LENGTH];                  // reserve space for receiving messages
++#ifndef SD_NO_HEADER
+     static UPLOAD_HEADER file_header;
++#endif
+     static UTFILE        utFile;                                         // local file object
+     QUEUE_HANDLE         PortIDInternal = ptrTaskTable->TaskID;          // queue ID for task input
+ 
+@@ -188,21 +203,32 @@
+                         }
+     #else
+                         if (utOpenFile(NEW_SOFTWARE_FILE, &utFile, ptr_utDirectory, UTFAT_OPEN_FOR_READ) == UTFAT_PATH_IS_FILE) { // {7}
++#if defined SD_NO_HEADER
++                            if (utFile.ulFileSize != MAX_UTASKER_APP_SIZE) { // {10} if the file is not exactly the size of the application flash we ignore it
++#else
+                             if (utFile.ulFileSize > (MAX_UTASKER_APP_SIZE + SIZE_OF_UPLOAD_HEADER)) { // {10} if the file is too large we ignore it
++#endif
+                                 _DISPLAY_OVERSIZE_CONTENT();
+                             }
+                             else {
++#if !defined SD_NO_HEADER
+                                 utReadFile(&utFile, (unsigned char *)&file_header, SIZE_OF_UPLOAD_HEADER); // read the file header
+         #if defined (_WINDOWS) || defined (_LITTLE_ENDIAN)
+                                 fnHeaderToLittleEndian(&file_header);
+         #endif
+                                 if (utFile.ulFileSize == (file_header.ulCodeLength + SIZE_OF_UPLOAD_HEADER)) { // content length matches
+                                     if ((file_header.usMagicNumber == VALID_VERSION_MAGIC_NUMBER)) { // check test that the header version (magic number) is correct
++#endif
+         #if defined USB_INTERFACE && defined USB_MSD_LOADER
+                                         fileObjInfo.usCreationDate = utFile.usCreationDate;
+                                         fileObjInfo.usCreationTime = utFile.usCreationTime;
+         #endif
+                                         iAppState = STATE_START_CHECKING;
++
++#if defined SD_NO_HEADER
++                                        iAppState = fnUpdateSoftware(iAppState, &utFile);
++                                        return;
++#else
+                                         iAppState = fnUpdateSoftware(iAppState, &utFile, &file_header);
+                                         return;
+                                     }
+@@ -213,6 +239,7 @@
+                                 else {
+                                     _DISPLAY_INVALID_CONTENT();              // optionally display that the software file has been found but has invalid content
+                                 }
++#endif
+                             }
+                         }
+                         else {
+@@ -235,24 +262,39 @@
+                             if (fnWildcardMatch(ptrFileName, NEW_SOFTWARE_FILE) == 0) { // if the name matches
+                                 iResult = 1;                             // note that a file has been found with a valid name
+                                 if (utOpenFile(ptrFileName, &utFile, ptr_utDirectory, UTFAT_OPEN_FOR_READ) == UTFAT_PATH_IS_FILE) { // open the file
++#if defined SD_NO_HEADER
++                                    if (utFile.ulFileSize != MAX_UTASKER_APP_SIZE) { // {10} if the file is not exactly the size of the application flash we ignore it
++#else
+                                     if (utFile.ulFileSize > (MAX_UTASKER_APP_SIZE + SIZE_OF_UPLOAD_HEADER)) { // {10} if the file is too large we ignore it
++#endif
+                                         _DISPLAY_OVERSIZE_CONTENT();
+                                     }
+                                     else {
++#if !defined SD_NO_HEADER
+                                         utReadFile(&utFile, (unsigned char *)&file_header, SIZE_OF_UPLOAD_HEADER); // read the file header
+         #if defined (_WINDOWS) || defined (_LITTLE_ENDIAN)
+                                         fnHeaderToLittleEndian(&file_header);
+         #endif
+                                         if (utFile.ulFileSize == (file_header.ulCodeLength + SIZE_OF_UPLOAD_HEADER)) { // content length matches
+                                             if ((file_header.usMagicNumber == VALID_VERSION_MAGIC_NUMBER)) { // check test that the header version (magic number) is correct
++#endif
++        #if defined USB_INTERFACE && defined USB_MSD_LOADER
++                                        fileObjInfo.usCreationDate = utFile.usCreationDate;
++                                        fileObjInfo.usCreationTime = utFile.usCreationTime;
++        #endif
+                                                 iAppState = STATE_START_CHECKING;
+         #if defined DELETE_SDCARD_FILE_AFTER_UPDATE
+                                                 uStrcpy(cSWfile, ptrFileName); // make a copy of the file name so that it can be deleted later
+         #endif
++#if defined SD_NO_HEADER
++                                                iAppState = fnUpdateSoftware(iAppState, &utFile);
++                                                return;
++#else
+                                                 iAppState = fnUpdateSoftware(iAppState, &utFile, &file_header);
+                                                 return;
+                                             }
+                                         }
++#endif
+                                     }
+                                 }
+                             }
+@@ -269,7 +311,11 @@
+                     return;
+                 }
+     #endif
++#if defined SD_NO_HEADER
++                iAppState = fnUpdateSoftware(iAppState, &utFile);
++#else
+                 iAppState = fnUpdateSoftware(iAppState, &utFile, &file_header);
++#endif
+                 return;
+             }
+         }
+@@ -333,6 +379,65 @@
+ }
+ #endif
+ 
++int fnIsApplicationValid(void) {
++    unsigned short usCRC = 0;
++    unsigned char  *ptrInternalFlash = (unsigned char *)_UTASKER_APP_START_;;
++    unsigned long  ulFileLength = MAX_UTASKER_APP_SIZE;
++
++    while (ulFileLength >= CRC_BLOCK_SIZE) {
++        usCRC = fnCRC16(usCRC, fnGetFlashAdd(ptrInternalFlash), CRC_BLOCK_SIZE);
++        ulFileLength -= CRC_BLOCK_SIZE;
++        ptrInternalFlash += CRC_BLOCK_SIZE;
++    }
++
++    usCRC = fnCRC16(usCRC, fnGetFlashAdd(ptrInternalFlash), ulFileLength); // last block
++    if (usCRC == 0x0000)
++        return 1;
++    else
++        return 0;
++}
++
++int fnIsApplicationErased(void) {
++    unsigned char  *ptrInternalFlash = (unsigned char *)UTASKER_APP_START;
++    unsigned long  ulFileLength = UTASKER_APP_END - (unsigned char *)UTASKER_APP_START;
++
++    while (ulFileLength--) {
++        if(*ptrInternalFlash++ != 0xff)
++            return 0;
++    }
++
++    return 1;
++}
++
++#define _nop_() __asm volatile ("nop;nop")
++
++void setupBlinkingLED(unsigned int position) {
++    int i;
++
++    INIT_MATRIX_DATA();
++    INIT_MATRIX_ADDX();
++
++    for(i=0; i<32; i++) {
++        if(i == position) {
++            SET_MATRIX_R1_HIGH();
++        } else {
++            SET_MATRIX_R1_LOW();
++        }
++
++        _nop_();
++
++        TOGGLE_MATRIX_CLK();
++        _nop_();
++        TOGGLE_MATRIX_CLK();
++        _nop_();
++    }
++
++    TOGGLE_MATRIX_LATCH();
++    _nop_();
++    INIT_MATRIX_OE();
++    TOGGLE_MATRIX_LATCH();
++}
++
+ static void fnJumpToApplication(int iGo)                                 // {3}
+ {
+     static int iMaxWait = 0;
+@@ -347,11 +452,32 @@
+         RESET_PERIPHERALS();                                             // {5}
+         return;
+ #else
++
++#if defined SD_NO_HEADER
++        if (fnIsApplicationValid()) { // if an application is present
++#else
+         if ((*(unsigned long *)_UTASKER_APP_START_ != 0xffffffff) && (*(unsigned long *)(_UTASKER_APP_START_ + 4) != 0xffffffff)) { // if an application is present
++#endif
+             uDisable_Interrupt();                                        // ensure interrupts are disabled when jumping to the application
+             RESET_PERIPHERALS();                                         // {5}
+             start_application(_UTASKER_APP_START_);                      // jump to application code
+         }
++        // else stop SD task and start USB task, setting up blinking LED first
++        fnDebugMsg("\r\nNo Firmware available, starting USB Task\r\n\n");
++        // blinking led in middle indicates USB-MSD mode
++        setupBlinkingLED(16);
++
++        // check for blank flash (starting with name)
++        if(!fnIsApplicationErased()) {
++            fnDebugMsg("Erasing application flash\r\n\n");
++            fnEraseFlashSector((unsigned char *)UTASKER_APP_START, (UTASKER_APP_END - (unsigned char *)UTASKER_APP_START)); // delete application space
++        }
++        // erase flash if not blank
++        fnEraseFlashSector((unsigned char *)UTASKER_APP_START, (UTASKER_APP_END - (unsigned char *)UTASKER_APP_START)); // delete application space
++
++        uTaskerStateChange(TASK_USB, UTASKER_ACTIVATE);
++        uTaskerStateChange(TASK_MASS_STORAGE, UTASKER_STOP);
++        uTaskerStateChange(TASK_SD_LOADER, UTASKER_STOP);
+         return;
+ #endif
+     }
+@@ -360,6 +486,139 @@
+ 
+ // SD card update state-event machine
+ //
++#if defined SD_NO_HEADER
++static int fnUpdateSoftware(int iAppState, UTFILE *ptr_utFile)
++{
++    static unsigned short usCRC = 0;
++    static int            iFlashMismatch = 0;
++    static unsigned char  *ptrInternalFlash;
++    int                   iNextState = iAppState;
++    unsigned char         ucBuffer[COPY_BUFFER_SIZE];
++
++    switch (iAppState) {
++    case STATE_START_CHECKING:
++    #if defined USB_INTERFACE && defined USB_MSD_LOADER
++        fileObjInfo.ptrLastAddress = 0;                                  // {6}
++    #endif
++        iFlashMismatch = 0;
++        usCRC = 0;
++        ptrInternalFlash = (unsigned char *)_UTASKER_APP_START_;
++        iNextState = STATE_CHECKING;
++        // Fall-through intentional
++        //
++    case STATE_CHECKING:                                                 // check the CRC of the file on the SD card
++        utReadFile(ptr_utFile, ucBuffer, sizeof(ucBuffer));              // read a single buffer from the file on the SD card
++        usCRC = fnCRC16(usCRC, ucBuffer, ptr_utFile->usLastReadWriteLength); // calculate the CRC of complete file content
++        if (iFlashMismatch == 0) {                                       // if the code still matches
++            if (uMemcmp(fnGetFlashAdd(ptrInternalFlash), ucBuffer, ptr_utFile->usLastReadWriteLength) != 0) { // check whether the code is different
++                iFlashMismatch = 1;                                      // the code is different so needs to be updated
++            }
++            else {
++                ptrInternalFlash += ptr_utFile->usLastReadWriteLength;
++            }
++        }
++        if (ptr_utFile->usLastReadWriteLength != sizeof(ucBuffer)) {     // end of file reached
++            iNextState = STATE_CHECK_SECRET_KEY;
++        }
++        fnInterruptMessage(OWN_TASK, E_DO_NEXT);                         // schedule next
++        break;
++
++    case STATE_CHECK_SECRET_KEY:
++#if 0
++        usCRC = fnCRC16(usCRC, (unsigned char *)ucSecretKey, sizeof(ucSecretKey)); // add the secret key
++#endif
++        if (usCRC == 0x0000) {                            // content is valid
++            _DISPLAY_VALID_CONTENT();                                    // optionally display that the content is valid
++
++            // blinking LED in corner indicates updating firmware from SD
++            setupBlinkingLED(0);
++
++            if (iFlashMismatch != 0) {                                   // valid new code which needs to be programmed
++                fnEraseFlashSector((unsigned char *)UTASKER_APP_START, (UTASKER_APP_END - (unsigned char *)UTASKER_APP_START)); // delete application space
++                iNextState = STATE_DELETING_FLASH;
++                fnInterruptMessage(OWN_TASK, E_DO_NEXT);                 // schedule next
++            }
++            else {
++                _DISPLAY_SW_OK();                                        // optionally display that the programmed application is already up-to-date
++    #if defined DELETE_SDCARD_FILE_AFTER_UPDATE
++        #if defined WILDCARD_FILES
++                utDeleteFile((const CHAR *)cSWfile, ptr_utDirectory);
++        #else
++                utDeleteFile(NEW_SOFTWARE_FILE, ptr_utDirectory);
++        #endif
++    #endif
++                uTaskerMonoTimer(OWN_TASK, (DELAY_LIMIT)(SEC * 1.5), T_JUMP_TO_APP); // start the application after a delay
++                iNextState = STATE_ACTIVE;
++            }
++        }
++        else {
++            _DISPLAY_INVALID_CONTENT();                                  // optionally display that the content is not valid
++            uTaskerMonoTimer(OWN_TASK, (DELAY_LIMIT)(SEC * 1), T_JUMP_TO_APP); // {3} start the existing application after a delay
++            iNextState = STATE_ACTIVE;
++        }
++        break;
++
++    case STATE_DELETING_FLASH:                                           // flash deleted
++        ptrInternalFlash = (unsigned char *)_UTASKER_APP_START_;
++        utSeek(ptr_utFile, 0, UTFAT_SEEK_SET);       // return to the start of the file after the header
++        utReadFile(ptr_utFile, ucCodeStart, sizeof(ucCodeStart));        // store code start for programming as final step
++        ptrInternalFlash += sizeof(ucCodeStart);
++        iNextState = STATE_PROGRAMMING;
++        // Fall-through intentional
++        //
++    case STATE_PROGRAMMING:                                              // programming from SD card file to internal application space
++        utReadFile(ptr_utFile, ucBuffer, sizeof(ucBuffer));              // read buffer from file
++        fnWriteBytesFlash(ptrInternalFlash, ucBuffer, ptr_utFile->usLastReadWriteLength); // program to Flash
++        ptrInternalFlash += ptr_utFile->usLastReadWriteLength;
++        if (ptr_utFile->usLastReadWriteLength != sizeof(ucBuffer)) {     // end of file reached
++    #if defined FLASH_ROW_SIZE && FLASH_ROW_SIZE > 0                     // {2}
++            fnWriteBytesFlash(ptrInternalFlash, 0, 0);                   // close any outstanding FLASH buffer from end of the file
++    #endif
++    #if defined USB_INTERFACE && defined USB_MSD_LOADER
++            fileObjInfo.ptrLastAddress = ptrInternalFlash;               // save information about the length of data written
++    #endif
++            ptrInternalFlash = (unsigned char *)_UTASKER_APP_START_;
++            fnWriteBytesFlash(ptrInternalFlash, ucCodeStart, sizeof(ucCodeStart)); // program start of code to Flash
++    #if defined FLASH_ROW_SIZE && FLASH_ROW_SIZE > 0                     // {2}
++            fnWriteBytesFlash(ptrInternalFlash, 0, 0);                   // close any outstanding FLASH buffer from write to start of code
++    #endif
++    #ifdef USB_INTERFACE__                                               // the USB loader expects that the first long word in application flash to be non-blank so ensure it is the case
++            fnWriteBytesFlash((unsigned char *)UTASKER_APP_START, ucCodeStart, sizeof(ucCodeStart));
++        #if defined FLASH_ROW_SIZE && FLASH_ROW_SIZE > 0                 // {2}
++            fnWriteBytesFlash((unsigned char *)UTASKER_APP_START, 0, 0); // close any outstanding FLASH buffer from previous write
++        #endif
++    #endif
++            iNextState = STATE_VERIFYING;
++        }
++        fnInterruptMessage(OWN_TASK, E_DO_NEXT);                         // schedule next
++        break;
++
++    case STATE_VERIFYING:                                                // verify the CRC of the new application in flash
++        if (fnIsApplicationValid())
++        {                                                            // new code has been verified as being correct
++    #if defined USB_INTERFACE && defined USB_MSD_LOADER                  // {6}{11}
++            fnAddSREC_file(&fileObjInfo);                            // set file entry compatible with USB-MSD
++    #endif
++    #if defined DELETE_SDCARD_FILE_AFTER_UPDATE
++        #if defined WILDCARD_FILES
++            utDeleteFile((const CHAR *)cSWfile, ptr_utDirectory);
++        #else
++            utDeleteFile(NEW_SOFTWARE_FILE, ptr_utDirectory);
++        #endif
++    #endif
++            _DISPLAY_SW_UPDATED();                                   // optionally display that the code was successfully programmed
++            uTaskerMonoTimer(OWN_TASK, (DELAY_LIMIT)(SEC * 1.5), T_JUMP_TO_APP); // start the application after a short delay
++        }
++        else {
++            _DISPLAY_ERROR();                                        // optionally display that there was an error with the image loaded to flash
++            uTaskerMonoTimer(OWN_TASK, (DELAY_LIMIT)(SEC * 4), T_CHECK_CARD); // try again or allow application to start after a further check
++        }
++        iNextState = STATE_ACTIVE;
++        break;
++    }
++    return iNextState;
++}
++#else
+ static int fnUpdateSoftware(int iAppState, UTFILE *ptr_utFile, UPLOAD_HEADER *ptrFile_header)
+ {
+     #if defined ENCRYPTED_CARD_CONTENT                                   // {9}
+@@ -548,7 +807,9 @@
+     }
+     return iNextState;
+ }
++#endif
+ 
++#ifndef SD_NO_HEADER
+ #if defined (_WINDOWS) || defined (_LITTLE_ENDIAN)
+ static void fnHeaderToLittleEndian(UPLOAD_HEADER *file_header)
+ {
+@@ -576,7 +837,7 @@
+     file_header->ulCodeLength = ulLong;
+ }
+ #endif
+-
++#endif
+ 
+ // CRC-16 routine
+ //
+diff -ubr original/TaskConfig.h new/TaskConfig.h
+--- original/TaskConfig.h	2015-03-30 18:31:40.000000000 -0400
++++ new/TaskConfig.h	2015-06-09 14:15:07.000000000 -0400
+@@ -123,7 +123,7 @@
+ #if defined _HW_SAM7X
+   { "Wdog",      fnTaskWatchdog, NO_QUE,   (DELAY_LIMIT)(0.2 * SEC), (DELAY_LIMIT)(0.2 * SEC),  UTASKER_STOP}, // watchdog task (Note SAM7X is not allowed to start watchdog immediately since it also checks for too fast triggering!!)
+ #else
+-  { "Wdog",      fnTaskWatchdog, NO_QUE,   0, (DELAY_LIMIT)(0.1 * SEC),  UTASKER_GO}, // watchdog task (runs immediately and then periodically)
++  { "Wdog",      fnTaskWatchdog, NO_QUE,   0, (DELAY_LIMIT)(0.1 * SEC),  UTASKER_GO},// watchdog task (runs immediately and then periodically)
+ #endif
+ #if defined USE_IP || defined USE_IPV6                                   // {3} warning - start ARP task before Ethernet. If Ethernet messages are received before ARP table is ready there would be an error..
+   { "ARP",       fnTaskArp,      MEDIUM_QUE, (DELAY_LIMIT)(0.05 * SEC), 0, UTASKER_STOP}, // ARP task check periodically state of ARP table
+@@ -147,11 +147,11 @@
+   { "app",       fnApplication,  MEDIUM_QUE,  (DELAY_LIMIT)((0.10 * SEC) + (PHY_POWERUP_DELAY)), 0, UTASKER_STOP}, // Application - start after Ethernet to be sure we have Ethernet handle
+ #endif
+ #if defined USB_INTERFACE
+-  { "usb",       fnTaskUSB,      SMALL_QUEUE, (DELAY_LIMIT)(NO_DELAY_RESERVE_MONO), 0, UTASKER_ACTIVATE}, // USB (application) task
++  { "usb",       fnTaskUSB,      SMALL_QUEUE, (DELAY_LIMIT)(NO_DELAY_RESERVE_MONO), 0, UTASKER_STOP}, // USB (application) task
+ #endif
+ #if defined SDCARD_SUPPORT || defined SPI_FLASH_FAT                      // {2}
+-  { "MassSt",    fnMassStorage,  MEDIUM_QUE,  (DELAY_LIMIT)(NO_DELAY_RESERVE_MONO), 0, UTASKER_ACTIVATE}, // mass storage task
+-  { "SD",        fnSD_loader,    SMALL_QUEUE, (DELAY_LIMIT)(NO_DELAY_RESERVE_MONO), 0, UTASKER_ACTIVATE}, // SD card loader task
++  { "MassSt",    fnMassStorage,  MEDIUM_QUE,  (DELAY_LIMIT)(NO_DELAY_RESERVE_MONO), 0, UTASKER_STOP}, // mass storage task
++  { "SD",        fnSD_loader,    SMALL_QUEUE, (DELAY_LIMIT)(NO_DELAY_RESERVE_MONO), 0, UTASKER_STOP}, // SD card loader task
+ #endif
+ #if defined SUPPORT_LOW_POWER
+   { "lowPower", fnLowPower,      NO_QUE,      0, 0, UTASKER_GO},         // low power task
+diff -ubr original/app_hw_kinetis.h new/app_hw_kinetis.h
+--- original/app_hw_kinetis.h	2015-03-27 09:10:38.000000000 -0400
++++ new/app_hw_kinetis.h	2015-06-09 14:15:07.000000000 -0400
+@@ -1267,17 +1267,112 @@
+     #define POWER_DOWN_SD_CARD()
+     #define GET_SDCARD_WP_STATE()  1                                     // always write protect
+ #elif defined TEENSY_3_1
+-    #define BLINK_LED              (PORTC_BIT5)                          // if the port is changed (eg. A to B) the port macros will require appropriate adjustment too
+-    #define SWITCH_1               (PORTD_BIT5)                          // if the port is changed (eg. A to B) the port macros will require appropriate adjustment too
+-    #define SWITCH_2               (PORTD_BIT6)                          // if the port is changed (eg. A to B) the port macros will require appropriate adjustment too
++    #define BLINK_LED              (PORTA_BIT5)                          // if the port is changed (eg. A to B) the port macros will require appropriate adjustment too
+ 
+-    #define INIT_WATCHDOG_LED()     _CONFIG_DRIVE_PORT_OUTPUT_VALUE(C, (BLINK_LED), (BLINK_LED), (PORT_SRE_SLOW | PORT_DSE_HIGH))
+-    #define INIT_WATCHDOG_DISABLE() _CONFIG_PORT_INPUT_FAST_LOW(D, (SWITCH_1 | SWITCH_2), PORT_PS_UP_ENABLE); // configure as input
++    #define SWITCH_1               (PORTB_BIT18)                          // if the port is changed (eg. A to B) the port macros will require appropriate adjustment too    #define SWITCH_2               (PORTD_BIT6)                          // if the port is changed (eg. A to B) the port macros will require appropriate adjustment too
++    #define SWITCH_2               (PORTB_BIT0)                          // if the port is changed (eg. A to B) the port macros will require appropriate adjustment too    #define SWITCH_2               (PORTD_BIT6)                          // if the port is changed (eg. A to B) the port macros will require appropriate adjustment too
+ 
+-    #define WATCHDOG_DISABLE()     (_READ_PORT_MASK(D, SWITCH_2) == 0)   // pull this input down to disable watchdog (pull connector pin 21 [A6] to ground)
+-    #define FORCE_BOOT()           (_READ_PORT_MASK(D, SWITCH_1) == 0)   // pull this input down to force boot loader mode (pull connector pin 20 [A7] to ground)
++    #define INIT_WATCHDOG_LED()    _CONFIG_DRIVE_PORT_OUTPUT_VALUE(A, (BLINK_LED), (BLINK_LED), (PORT_SRE_SLOW | PORT_DSE_HIGH))
++	#define INIT_SWITCHES()        _CONFIG_PORT_INPUT(B, SWITCH_1 | SWITCH_2, PORT_PS_UP_ENABLE) // configure as input
++	#define INIT_WATCHDOG_DISABLE() INIT_SWITCHES();
++
++    #define WATCHDOG_DISABLE()     (0) // not supported (!_READ_PORT_MASK(D, SWITCH_2))       // pull this input down to disable watchdog (pull connector pin 21 [A6] to ground)
++
++    #define FORCE_BOOTLOADER_MODE()           (_READ_PORT_MASK(B, SWITCH_1 | SWITCH_2) != (SWITCH_1 | SWITCH_2))       // pull this input down to force boot loader mode (pull connector pin 20 [A7] to ground)
++    #if defined SDCARD_SUPPORT
++        #define RETAIN_LOADER_MODE()   (0)
++    #endif
++
++    // LED matrix definitions
++    #define MATRIX_DATA_PORT    D
++    #define MATRIX_ADDX_PORT    C
++    #define MATRIX_OE_PORT      A
++
++    #define MATRIX_DATA_R1      (PORTD_BIT0)
++    #define MATRIX_DATA_G1      (PORTD_BIT7)
++    #define MATRIX_DATA_B1      (PORTD_BIT4)
++    #define MATRIX_DATA_R2      (PORTD_BIT6)
++    #define MATRIX_DATA_G2      (PORTD_BIT2)
++    #define MATRIX_DATA_B2      (PORTD_BIT5)
++    #define MATRIX_DATA_CLK     (PORTD_BIT1)
++    #define MATRIX_DATA_LATCH   (PORTD_BIT3)
++
++    #define MATRX_ADDX_ADDX0    (PORTC_BIT3)
++    #define MATRX_ADDX_ADDX1    (PORTC_BIT4)
++    #define MATRX_ADDX_ADDX2    (PORTC_BIT1)
++    #define MATRX_ADDX_ADDX3    (PORTC_BIT2)
++
++    #define MATRIX_OE_PIN       (PORTA_BIT13)
++
++    #define INIT_MATRIX_DATA()  _CONFIG_DRIVE_PORT_OUTPUT_VALUE(D, 0xFF, 0, (PORT_SRE_SLOW | PORT_DSE_HIGH))
++    #define INIT_MATRIX_ADDX()  _CONFIG_DRIVE_PORT_OUTPUT_VALUE(C, (MATRX_ADDX_ADDX0 | MATRX_ADDX_ADDX1 | MATRX_ADDX_ADDX2 | MATRX_ADDX_ADDX3), 0, (PORT_SRE_SLOW | PORT_DSE_HIGH))
++    #define INIT_MATRIX_OE()    _CONFIG_DRIVE_PORT_OUTPUT_VALUE(A, MATRIX_OE_PIN, MATRIX_OE_PIN, (PORT_SRE_SLOW | PORT_DSE_HIGH))
++    #define INIT_MATRIX_OE_INPUT_PU()     _CONFIG_PORT_INPUT(A, MATRIX_OE_PIN, PORT_PS_UP_ENABLE)
++
++    #define TOGGLE_MATRIX_CLK()     _TOGGLE_PORT(D, MATRIX_DATA_CLK)
++    #define SET_MATRIX_R1_HIGH()    _SETBITS(D, PORTD_BIT0)
++    #define SET_MATRIX_R1_LOW()     _CLEARBITS(D, PORTD_BIT0)
++    #define TOGGLE_MATRIX_LATCH()   _TOGGLE_PORT(D, MATRIX_DATA_LATCH)
++
++    #define TOGGLE_WATCHDOG_LED()   _TOGGLE_PORT(A, MATRIX_OE_PIN); \
++									_TOGGLE_PORT(A, BLINK_LED)
++
++	// Configure to suit SD card SPI mode at between 100k and 400k - matching SmartMatrix SPI Pinout
++	#define SPI_CS1_0                  PORTC_BIT0
++	#define INITIALISE_SPI_SD_INTERFACE() POWER_UP(6, SIM_SCGC6_SPI0); \
++	_CONFIG_PERIPHERAL(C, 5, PD_1_SPI0_SCK); _CONFIG_PERIPHERAL(C, 6, (PD_2_SPI0_SOUT | PORT_SRE_FAST | PORT_DSE_HIGH)); _CONFIG_PERIPHERAL(C, 7, (PD_3_SPI0_SIN | PORT_PS_UP_ENABLE)); \
++	_CONFIG_DRIVE_PORT_OUTPUT_VALUE(C, SPI_CS1_0, SPI_CS1_0, (PORT_SRE_FAST | PORT_DSE_HIGH)); \
++	SPI0_CTAR0 = (SPI_CTAR_ASC_6 | SPI_CTAR_FMSZ_8 | SPI_CTAR_CPHA | SPI_CTAR_CPOL | SPI_CTAR_BR_128); SPI0_MCR = (SPI_MCR_DIS_TXF | SPI_MCR_DIS_RXF | SPI_MCR_MSTR | SPI_MCR_DCONF_SPI | SPI_MCR_CLR_RXF | SPI_MCR_CLR_TXF | SPI_MCR_PCSIS_CS0 | SPI_MCR_PCSIS_CS1 | SPI_MCR_PCSIS_CS2 | SPI_MCR_PCSIS_CS3 | SPI_MCR_PCSIS_CS4 | SPI_MCR_PCSIS_CS5)
++
++	#define ENABLE_SPI_SD_OPERATION()
++	#define SET_SD_CARD_MODE()
++
++	// Set maximum speed
++	//
++	#define SET_SPI_SD_INTERFACE_FULL_SPEED() SPI0_MCR |= SPI_MCR_HALT; SPI0_CTAR0 = (SPI_CTAR_FMSZ_8 | SPI_CTAR_CPOL | SPI_CTAR_CPHA | SPI_CTAR_BR_2 | SPI_CTAR_DBR); SPI0_MCR &= ~SPI_MCR_HALT;
++	#if defined _WINDOWS
++		#define WRITE_SPI_CMD(byte)     SPI0_SR &= ~(SPI_SR_RFDF); SPI0_PUSHR = (byte | SPI_PUSHR_PCS_NONE | SPI_PUSHR_CTAS_CTAR0); SPI0_POPR = _fnSimSD_write((unsigned char)byte)
++		#define WAIT_TRANSMISSON_END() while (!(SPI0_SR & (SPI_SR_RFDF))) { SPI0_SR |= (SPI_SR_RFDF); }
++		#define READ_SPI_DATA()        (volatile unsigned char)SPI0_POPR
++	#else
++		#define WRITE_SPI_CMD(byte)    SPI0_SR = (SPI_SR_RFDF); SPI0_PUSHR = (byte | SPI_PUSHR_PCS_NONE | SPI_PUSHR_CTAS_CTAR0) // clear flags before transmitting (and receiving) a single byte
++		#define WAIT_TRANSMISSON_END() while (!(SPI0_SR & (SPI_SR_RFDF))) {}
++		#define READ_SPI_DATA()        (volatile unsigned char)SPI0_POPR
++	#endif
++	#define SET_SD_DI_CS_HIGH()  _SETBITS(C, SPI_CS1_0)              // force DI and CS lines high ready for the initialisation sequence
++	#define SET_SD_CS_LOW()      _CLEARBITS(C, SPI_CS1_0)            // assert the CS line of the SD card to be read
++	#define SET_SD_CS_HIGH()     _SETBITS(C, SPI_CS1_0)              // negate the CS line of the SD card to be read
++	#define POWER_UP_SD_CARD()                                       // apply power to the SD card if appropriate
++
++	#define POWER_DOWN_SD_CARD()                                     // remove power from SD card interface
++	#define GET_SDCARD_WP_STATE()     0                              // no write protect switch (always write enabled)
++
++
++
++    #define BUTTON_KEY_DEFINITIONS  {_PORTB,        PORTB_BIT16, {340, 14,  353, 27 }}, \
++                                    {_PORTB,        PORTB_BIT17, {311, 14,  328, 27 }}, \
++                                    {_PORTD,        PORTD_BIT0,  {282, 14,  300, 27 }}, \
++                                    {_PORTA,        PORTA_BIT12, {256, 14,  272, 27 }}, \
++                                    {_PORTA,        PORTA_BIT13, {228, 14,  254, 27 }}, \
++                                    {_PORTD,        PORTD_BIT7,  {200, 14,  217, 27 }}, \
++                                    {_PORTD,        PORTD_BIT4,  {172, 14,  189, 27 }}, \
++                                    {_PORTD,        PORTD_BIT2,  {145, 14,  161, 27 }}, \
++                                    {_PORTD,        PORTD_BIT3,  {118, 14,  134, 27 }}, \
++                                    {_PORTC,        PORTC_BIT3,  {91,  14,  106, 27 }}, \
++                                    {_PORTC,        PORTC_BIT4,  {64,  14,  78,  27 }}, \
++                                    {_PORTC,        PORTC_BIT6,  {36,  14,  52,  27 }}, \
++                                    {_PORTC,        PORTC_BIT7,  {9,   14,  24,  27 }}, \
++                                    {_PORTD,        PORTD_BIT1,  {38,  182, 51,  192}}, \
++                                    {_PORTC,        PORTC_BIT0,  {64,  182, 80,  192}}, \
++                                    {_PORTB,        PORTB_BIT0,  {92,  182, 106, 192}}, \
++                                    {_PORTB,        PORTB_BIT1,  {120, 182, 134, 192}}, \
++                                    {_PORTB,        PORTB_BIT3,  {146, 182, 162, 192}}, \
++                                    {_PORTB,        PORTB_BIT2,  {175, 182, 189, 192}}, \
++                                    {SWITCH_1_PORT, SWITCH_1,    {203, 182, 214, 192}}, \
++                                    {SWITCH_2_PORT, SWITCH_2,    {230, 182, 245, 192}}, \
++                                    {_PORTC,        PORTC_BIT1,  {258, 182, 271, 192}}, \
++                                    {_PORTC,        PORTC_BIT2,  {284, 182, 299, 192}}, \
+ 
+-    #define TOGGLE_WATCHDOG_LED()  _TOGGLE_PORT(C, BLINK_LED)                                   
+ 
+         // '0'          '1'             input state  center (x,   y)   0 = circle, radius, controlling port, controlling pin 
+     #define KEYPAD_LED_DEFINITIONS  \
+diff -ubr original/config.h new/config.h
+--- original/config.h	2015-03-30 23:06:40.000000000 -0400
++++ new/config.h	2015-06-09 14:15:07.000000000 -0400
+@@ -53,6 +53,7 @@
+ #define _NO_CHECK_QUEUE_INPUT                                            // code size optimisations
+ #define _MINIMUM_IRQ_INITIALISATION
+ 
++#define UREVERSEMEMCPY
+ 
+ // Major hardware dependent settings for this project (choice of board - select only one at a time)
+ //
+@@ -68,7 +69,7 @@
+ //#define FRDM_KL25Z                                                     // L processors Cortex-M0+ (ultra-low power) with USB
+ //#define TWR_KL25Z48M
+ //#define FRDM_KL26Z
+-#define TEENSY_LC                                                        // USB development board with KL26Z64
++//#define TEENSY_LC                                                        // USB development board with KL26Z64
+ //#define FRDM_KL27Z
+ 
+ //#define FRDM_KL43Z                                                     // L processors Cortex-M0+ (ultra-low power) with USB and segment LCD
+@@ -87,7 +88,7 @@
+ //#define FRDM_K20D50M                                                   // K processors Cortex M4 (performance and integration) with USB
+ //#define TWR_K20D50M
+ //#define TWR_K20D72M
+-//#define TEENSY_3_1                                                     // USB development board with K20DX256
++#define TEENSY_3_1                                                       // USB development board with K20DX256
+ //#define K20FX512_120
+ //#define TWR_K21D50M
+ //#define TWR_K21F120M
+@@ -441,8 +442,8 @@
+    #define SERIAL_INTERFACE                                              // enable serial interface driver
+ #endif
+ #if defined SERIAL_INTERFACE
+-    #define KBOOT_LOADER                                                 // use KBOOT UART interface rather than SREC interface
+-  //#define REMOVE_SREC_LOADING                                          // disable SREC loading but keep debug output and the command line menu
++  //define KBOOT_LOADER                                                  // use KBOOT UART interface rather than SREC interface
++  #define REMOVE_SREC_LOADING                                          // disable SREC loading but keep debug output and the command line menu
+   //#define SERIAL_STATS                                                 // keep statistics about serial interface use
+   //#define SUPPORT_MSG_MODE                                             // enable terminator recognition (MSG_MODE)
+   //#define SUPPORT_MSG_CNT                                              // enable the message counter mode (MSG_MODE_RX_CNT) - requires also SUPPORT_MSG_MODE
+@@ -507,10 +508,10 @@
+     #endif
+ #endif
+ 
+-#if !defined TWR_K20D50M && !defined FRDM_K20D50M && !defined FRDM_KL46Z && !defined FRDM_KL43Z && !defined TWR_KL46Z48M && !defined FRDM_KL26Z && !defined FRDM_KL27Z && !defined TWR_KL25Z48M && !defined FRDM_KL02Z && !defined FRDM_KL03Z && !defined FRDM_KL05Z && !defined FRDM_KE02Z && !defined FRDM_KE02Z40M && !defined FRDM_KE04Z && !defined TWR_K20D72M && !defined TWR_K21D50M && !defined TWR_K22F120M && !defined TWR_K24F120M && !defined TEENSY_3_1 && !defined FRDM_K22F && !defined TWR_KV10Z32 && !defined TWR_KV31F120M // boards have no SD card socket
+-  //#define SDCARD_SUPPORT                                               // SD-card interface (only choose one of these options at a time)
++  #define SDCARD_SUPPORT                                               // SD-card interface (only choose one of these options at a time)
++#if !defined TWR_K20D50M && !defined FRDM_K20D50M && !defined FRDM_KL46Z && !defined FRDM_KL43Z && !defined TWR_KL46Z48M && !defined FRDM_KL26Z && !defined FRDM_KL27Z && !defined TWR_KL25Z48M && !defined FRDM_KL02Z && !defined FRDM_KL03Z && !defined FRDM_KL05Z && !defined FRDM_KE02Z && !defined FRDM_KE02Z40M && !defined FRDM_KE04Z && !defined TWR_K20D72M && !defined TWR_K21D50M && !defined TWR_K22F120M && !defined TWR_K24F120M && !defined FRDM_K22F && !defined TWR_KV10Z32 && !defined TWR_KV31F120M  // boards have no SD card socket
+   //#define SPI_FLASH_FAT                                                // SPI flash
+-  //#define DELETE_SDCARD_FILE_AFTER_UPDATE
++  #define DELETE_SDCARD_FILE_AFTER_UPDATE
+     #if defined DELETE_SDCARD_FILE_AFTER_UPDATE
+         #define UTFAT_WRITE
+     #endif
+@@ -535,13 +536,13 @@
+       //#define UTFAT_FULL_FORMATTING                                    // enable formatting SD cards including zeroing of data sectors as well as FAT sectors
+       //#define SUPPORT_FILE_TIME_STAMP                                  // when activated fnGetLocalFileTime() must exist, which return the date and time information
+     #endif
+-  //#define UTFAT16                                                      // support FAT16 as well as FAT32
++    #define UTFAT16                                                      // support FAT16 as well as FAT32
+     #define UTFAT_RETURN_FILE_CREATION_TIME                              // when a file is opened, its creation time and date is returned in the file object
+     #define UTFAT_DISABLE_DEBUG_OUT                                      // disable all debug output messages from the utFAT module
+ #endif
+ 
+ #if !defined DEVICE_WITHOUT_ETHERNET
+-    #define ETH_INTERFACE                                                // enable Ethernet interface driver
++  //#define ETH_INTERFACE                                                // enable Ethernet interface driver
+ #endif
+ #if defined ETH_INTERFACE
+     #define MAC_DELIMITER  '-'                                           // used for display and entry of mac addresses
+diff -ubr original/usb_loader.c new/usb_loader.c
+--- original/usb_loader.c	2015-03-30 18:38:20.000000000 -0400
++++ new/usb_loader.c	2015-06-09 14:15:07.000000000 -0400
+@@ -65,12 +65,14 @@
+     #define DISK_COUNT 1                                                 // {26}
+ #endif
+ 
+-//#define NO_BLOCKING_PERIOD                                             // test removal of blocking period due to improved filtering
++#define NO_BLOCKING_PERIOD                                             // test removal of blocking period due to improved filtering
++#if defined NO_BLOCKING_PERIOD
++    #define AUTO_DELETE_ON_ANY_FIRMWARE                                      // allow dropping any file name (with software content) to delete existing file and ensure that MAC overwrites operate in all cases
++#endif
+ 
+ #define WINDOWS_8_1_WORKAROUND                                           // {15} from Windows 8.1 the PC writes some hidden file information to newly attached USB drives, which is uses to detect whether it has been attached before (enabling fast search, for example)
+                                                                          // since this looks like a software upload starting the boot loader ignores writes for a period of 5s after enumeration - after this period has expired an upload can be started and will be recognised
+ #define MAC_OS_X_WORKAROUND                                              // {25} filter hidden content write that can occur together with file copies
+-#define AUTO_DELETE_ON_ANY_FIRMWARE                                      // allow dropping any file name (with software content) to delete existing file and ensure that MAC overwrites operate in all cases
+ 
+ #define OWN_TASK                           TASK_USB
+ 
+@@ -1134,9 +1136,7 @@
+             #else
+                 uMemset(ucAcceptUploads, 2, sizeof(ucAcceptUploads));    // accept software uploads from now (valid for all disks)
+             #endif
+-            #if defined DEBUG_MAC
+                 fnDebugMsg("Blocking period expired\r\n");
+-            #endif
+             break;
+         #endif
+ 
+@@ -1241,7 +1241,7 @@
+                 uMemset(ucAcceptUploads, 2, sizeof(ucAcceptUploads));    // accept software uploads from now (valid for all disks)
+             #endif
+         #else
+-                uTaskerMonoTimer(OWN_TASK, (DELAY_LIMIT)(2 * SEC), TIMEOUT_ACCEPT_UPLOAD); // start a period where writes will be ignored - when the timer has expired uploads are accepted
++                uTaskerMonoTimer(OWN_TASK, (DELAY_LIMIT)(5 * SEC), TIMEOUT_ACCEPT_UPLOAD); // start a period where writes will be ignored - when the timer has expired uploads are accepted
+         #endif
+     #endif
+                 break;
