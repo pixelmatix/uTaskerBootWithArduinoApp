@@ -83,8 +83,9 @@ teensy31.menu.postcompilescript.crc.build.binscript="(" "(" "{build.path}/{build
 * Create software.bin
 * Use Teensy Loader to upload `uTaskerBootloader-SmartMatrix.hex` to Teensy
 * Wait for red light to blink on SmartMatrix indicating no application is loaded.
-* Find UPLOAD_DISK drive
-* Copy software.bin to UPLOAD_DISK drive, it will eject automatically
+* Find UPLOAD_DISK (or SMARTMATRIX_BOOT) drive
+* (If using OSX) Delete existing software.bin if any on drive
+* Copy software.bin to drive, it will eject automatically
 * Ignore any warnings on "Disk Not Ejected Properly", the disk self-ejected after the file copied over
 * Aurora should now run
 
