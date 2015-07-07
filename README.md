@@ -66,6 +66,7 @@ teensy31.menu.postcompilescript.crc.build.script="(" "(" "{build.path}/{build.pr
 	* Add this line below:  
 	`recipe.objcopy.hex.2.pattern="{runtime.ide.path}/hardware/tools/srec_cat" {build.binscript}`
 * Copy `srec_cat` executable and `uTaskerUsbMsd-SmartMatrix.hex` to `/Contents/Java/tools` in your  Arduino application
+	* `uTaskerUsbMsd-SmartMatrix.hex` is included with Aurora in the /bin directory
 * Note: these instructions are only tested on the Mac, you may need to rename the `srec_cat` command in platform.txt to `srec_cat.exe` on Windows.
 * Restart Arduino and there should be a new menu entry in the Tools menu: "BIN Script"
 	* "Default" does nothing useful, it calls srec_cat and saves a temp.bin file.
