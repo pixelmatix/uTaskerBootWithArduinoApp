@@ -50,8 +50,7 @@ It takes a few seconds for the bootloader to check the SD card at reset before e
 * Install srec_cat tool: http://srecord.sourceforge.net/
 * Modify boards.txt in the Arduino application to give new Post Compile Script option
     * `hardware/teensy/avr/boards.txt`
-    * Add these lines (anywhere in the file is fine):  
-```  
+    * Add these lines (anywhere in the file is fine):  ```  
 menu.postcompilescript=Post Compile Script
 teensy31.menu.postcompilescript.default=Default
 teensy31.menu.postcompilescript.default.build.script="{build.path}/{build.project_name}.hex" "-Intel" "-Output" "temp.bin"
