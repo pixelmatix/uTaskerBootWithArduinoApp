@@ -47,7 +47,7 @@ It takes a few seconds for the bootloader to check the SD card at reset before e
 
 #### Automating Application .bin Creation with Arduino
 * Install Teensyduino (minimum 1.21) onto Arduino (minimum 1.6.1)
-* Install srec_cat tool: http://srecord.sourceforge.net/
+* Download srec_cat tool: http://srecord.sourceforge.net/ (on Mac you can use Homebrew to install the `srecord` package)
 * Modify boards.txt in the Arduino application to give new Post Compile Script option
     * `hardware/teensy/avr/boards.txt`
     * Add these lines (anywhere in the file is fine):  
